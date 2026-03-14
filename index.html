@@ -7,8 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,700&family=DM+Sans:wght@300;400;500&family=DM+Serif+Display:ital@0;1&family=Caveat:wght@400;600&display=swap" rel="stylesheet"/>
-<!-- smtp.js — browser SMTP, same Gmail credentials as WorkTrack -->
-<script src="https://smtpjs.com/v3/smtp.js"></script>
 <style>
 /* ══════════════════════════════════════════════
    THEME TOKENS
@@ -1276,8 +1274,8 @@ function enterEdit(){
   document.getElementById('eConfFrom').value=document.getElementById('confFrom').textContent;
   document.getElementById('eConfText').value=confTextRaw;
   try{const d=JSON.parse(localStorage.getItem('mia_v3')||'{}');if(d.hero&&d.hero.musicUrl)document.getElementById('eMusicUrl').value=d.hero.musicUrl;}catch(e){}
-  const rb=document.getElementById('wbReplyBox');
-  try{const d=JSON.parse(localStorage.getItem('mia_v3')||'{}');if(d.wbReply){document.getElementById('wbReplyText').textContent=d.wbReply;rb.style.display='block';}}catch(e){}
+  // Populate reply text (CSS body.em already shows/hides the box)
+  try{const d=JSON.parse(localStorage.getItem('mia_v3')||'{}');if(d.wbReply)document.getElementById('wbReplyText').textContent=d.wbReply;}catch(e){}
 }
 function exitEdit(){
   EM=false;document.body.classList.remove('em');
@@ -1505,19 +1503,18 @@ function setAmbientMusic(url){ambientVid=extractYTId(url);D.hero.musicUrl=url;tr
 window.onYouTubeIframeAPIReady=function(){if(!ambientVid)return;ytAmbPlayer=new YT.Player('yt-ambient',{videoId:ambientVid,playerVars:{autoplay:0,controls:0,loop:1,playlist:ambientVid,mute:0},events:{onReady:e=>{if(isAmbient){e.target.setVolume(55);e.target.playVideo();}},onStateChange:e=>{if(e.data===YT.PlayerState.ENDED&&isAmbient)e.target.playVideo();}}});};
 function loadYTAPI(){if(window.YT&&window.YT.Player){if(ambientVid)window.onYouTubeIframeAPIReady();return;}const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);}
 function toggleSound(){
-  isAmbient=!isAmbient;
-  const btn=document.getElementById('soundBtn');btn.classList.toggle('on',isAmbient);
-  if(!ambientVid){ ambientVid = 'EaiOIr1DG_w'; } // always hardcoded fallback
-  if(!ambientVid){isAmbient=false;btn.classList.remove('on');return;}
-  if(!ambientVid){alert('No music added yet. Ask the admin to link a YouTube song.');isAmbient=false;btn.classList.remove('on');return;}
-  if(!ytAmbPlayer){loadYTAPI();return;}
-  if(isAmbient){ytAmbPlayer.setVolume(55);ytAmbPlayer.playVideo();}else ytAmbPlayer.pauseVideo();
+  isAmbient = !isAmbient;
+  const btn = document.getElementById('soundBtn');
+  btn.classList.toggle('on', isAmbient);
+  if(!ytAmbPlayer){ loadYTAPI(); return; }
+  if(isAmbient){ ytAmbPlayer.setVolume(55); ytAmbPlayer.playVideo(); }
+  else ytAmbPlayer.pauseVideo();
 }
 
 /* ════════════════════════════════════
    WRITE BACK
 ════════════════════════════════════ */
-function submitLetter(){
+async function submitLetter(){
   const name   = document.getElementById('wbName').value.trim();
   const msg    = document.getElementById('wbMsg').value.trim();
   const btn    = document.getElementById('wbSendBtn');
@@ -1527,81 +1524,68 @@ function submitLetter(){
   errEl.style.display = 'none';
   if(!msg){ showToast('Write something first! 💌'); return; }
 
-  // Save locally as backup regardless of send result
+  // Save locally as backup
   try{
     const d = JSON.parse(localStorage.getItem('mia_v3')||'{}');
-    d.wbReply = `${name ? name+': ' : ''}${msg}`;
+    d.wbReply = `${name?name+': ':''}${msg}`;
     localStorage.setItem('mia_v3', JSON.stringify(d));
   }catch(e){}
 
   btn.disabled = true;
   btnTxt.textContent = 'Sending... 💌';
 
-  // ── Send via smtp.js using the same Gmail credentials as WorkTrack ──
-  const subject  = '💌 ' + (name||'Mia') + ' wrote back to you — Pi Day 3.14 🌸';
-  const htmlBody = `
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;background:#fdf6f0;padding:40px 16px;">
-      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(192,112,112,.15);">
-        <div style="height:4px;background:linear-gradient(90deg,#c07070,#7fb3b3,#c07070);"></div>
-        <div style="padding:40px;">
-          <div style="font-size:32px;margin-bottom:12px;">💌</div>
-          <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#3d2525;">${name||'Mia'} wrote back</h1>
-          <p style="margin:0 0 24px;font-size:13px;color:#9a7070;letter-spacing:.05em;">From the Pi Day website — 3.14.2026 🌸</p>
-          <div style="background:#fdf6f0;border-left:3px solid #c07070;border-radius:0 12px 12px 0;padding:18px 20px;font-size:16px;color:#3d2525;line-height:1.8;font-style:italic;">
-            ${msg.replace(/\n/g,'<br/>')}
-          </div>
-          <p style="margin:24px 0 0;font-size:12px;color:#c8a8a8;text-align:center;">Sent from the confession website you built for her 🌸</p>
-        </div>
-      </div>
-    </div>`;
+  // ── Web3Forms: free form-to-email API, no backend needed ──
+  // Get your free access key at web3forms.com → enter johndaleverthpechanova@gmail.com
+  // Then paste it below. Takes 30 seconds.
+  const WEB3FORMS_KEY = 'f9d354b9-4c2f-4a9c-be20-3e0095cd4b34';
 
-  // Use smtp.js — browser-side Gmail SMTP (same credentials as WorkTrack app.py)
-  Email.send({
-    Host:       'smtp.gmail.com',
-    Username:   'johndaleverthpechanova@gmail.com',
-    Password:   'fvgralqybuvbkzry',
-    To:         'Johndaleverthpechanova@gmail.com',
-    From:       'johndaleverthpechanova@gmail.com',
-    Subject:    subject,
-    Body:       htmlBody,
-  }).then(res => {
-    btn.disabled = false;
-    btnTxt.textContent = 'Send my reply ♡';
-    if(res === 'OK'){
-      document.getElementById('wbForm').style.display  = 'none';
-      document.getElementById('wbSuccess').style.display = 'block';
-      document.getElementById('wbSuccessMsg').textContent = 'Sent! He\'ll read it soon. 🌸';
-      showToast('💌 Message delivered to Dale!');
+  const formData = new FormData();
+  formData.append('access_key', WEB3FORMS_KEY);
+  formData.append('subject',    '💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸');
+  formData.append('from_name',  name || 'Mia Grace');
+  formData.append('message',    msg);
+  formData.append('to_email',   'johndaleverthpechanova@gmail.com');
+  formData.append('botcheck',   '');  // honeypot
+
+  try{
+    const res  = await fetch('https://api.web3forms.com/submit', {
+      method: 'POST',
+      body:   formData
+    });
+    const data = await res.json();
+
+    if(data.success){
+      _showSent();
     } else {
-      // Fallback to mailto if smtp.js fails
-      _mailtoFallback(name, msg, subject);
+      console.warn('Web3Forms error:', data);
+      _mailtoFallback(name, msg);
     }
-  }).catch(() => {
+  } catch(err){
+    console.warn('Send failed, opening Gmail:', err);
+    _mailtoFallback(name, msg);
+  } finally {
     btn.disabled = false;
     btnTxt.textContent = 'Send my reply ♡';
-    _mailtoFallback(name, msg, subject);
-  });
+  }
 }
 
-function _getSMTPToken(){
-  // smtp.js secure token — generated from:
-  // Host: smtp.gmail.com, Port: 587, Username: johndaleverthpechanova@gmail.com
-  // Password: fvgralqybuvbkzry (Gmail App Password — same as WorkTrack)
-  // Generate your token at: https://smtpjs.com/v3/smtp.js → "Encrypt my credentials"
-  // Then paste the token string here. For now using direct credentials (works the same).
-  return '';  // leave blank to use Username/Password below
+function _showSent(){
+  document.getElementById('wbForm').style.display    = 'none';
+  document.getElementById('wbSuccess').style.display = 'block';
+  document.getElementById('wbSuccessMsg').textContent = 'Sent! He\'ll read it soon. 🌸';
+  showToast('💌 Message delivered!');
 }
 
-function _mailtoFallback(name, msg, subject){
-  // If SMTP fails, gracefully fall back to mailto
-  const to   = 'Johndaleverthpechanova@gmail.com';
-  const body = encodeURIComponent((name?'From: '+name+'\n\n':'')+msg+'\n\n— Sent from the Pi Day website 🌸');
-  window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${body}`;
+function _mailtoFallback(name, msg){
+  // If API fails, open Gmail compose as backup — message is pre-filled
+  const to  = 'johndaleverthpechanova@gmail.com';
+  const sub = encodeURIComponent('💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸');
+  const bod = encodeURIComponent((name?'From: '+name+'\n\n':'')+msg+'\n\n— Sent from the Pi Day website 🌸');
+  window.open(`mailto:${to}?subject=${sub}&body=${bod}`, '_blank');
   setTimeout(()=>{
-    document.getElementById('wbForm').style.display  = 'none';
-    document.getElementById('wbSuccess').style.display = 'block';
-    document.getElementById('wbSuccessMsg').textContent = 'Your Gmail app opened! He\'ll read it soon. 🌸';
-  }, 1200);
+    _showSent();
+    document.getElementById('wbSuccessMsg').textContent = 'Gmail opened! Send the message and he\'ll receive it. 🌸';
+  }, 800);
 }
 
 /* ════════════════════════════════════
