@@ -1074,7 +1074,7 @@ footer::before{content:'';display:block;height:1px;background:linear-gradient(90
   <div class="writeback-card rv">
     <div class="wb-icon">💌</div>
     <div class="wb-title">Write me back</div>
-    <p class="wb-sub">Whatever's on your heart — just say it. He'll receive it directly. 🌸</p>
+    <p class="wb-sub">Type your message — Gmail will open with it ready to send. Just tap Send and he'll receive it. 🌸</p>
     <div id="wbForm">
       <input class="wb-input" id="wbName" placeholder="Your name (e.g. Mia)..." type="text"/>
       <textarea class="wb-textarea" id="wbMsg" placeholder="Dear Dale..." rows="5"></textarea>
@@ -1519,73 +1519,74 @@ async function submitLetter(){
   const msg    = document.getElementById('wbMsg').value.trim();
   const btn    = document.getElementById('wbSendBtn');
   const btnTxt = document.getElementById('wbBtnTxt');
-  const errEl  = document.getElementById('wbSendErr');
 
-  errEl.style.display = 'none';
   if(!msg){ showToast('Write something first! 💌'); return; }
 
-  // Save locally as backup
+  // Always save locally first
   try{
     const d = JSON.parse(localStorage.getItem('mia_v3')||'{}');
     d.wbReply = `${name?name+': ':''}${msg}`;
+    d.wbReplyTime = new Date().toLocaleString();
     localStorage.setItem('mia_v3', JSON.stringify(d));
   }catch(e){}
 
   btn.disabled = true;
-  btnTxt.textContent = 'Sending... 💌';
+  btnTxt.textContent = '💌 Sending...';
 
-  // ── Web3Forms: free form-to-email API, no backend needed ──
-  // Get your free access key at web3forms.com → enter johndaleverthpechanova@gmail.com
-  // Then paste it below. Takes 30 seconds.
-  const WEB3FORMS_KEY = 'f9d354b9-4c2f-4a9c-be20-3e0095cd4b34';
-
-  const formData = new FormData();
-  formData.append('access_key', WEB3FORMS_KEY);
-  formData.append('subject',    '💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸');
-  formData.append('from_name',  name || 'Mia Grace');
-  formData.append('message',    msg);
-  formData.append('to_email',   'johndaleverthpechanova@gmail.com');
-  formData.append('botcheck',   '');  // honeypot
-
+  // Try Web3Forms first (works on HTTPS/GitHub Pages)
+  // Key: f9d354b9-4c2f-4a9c-be20-3e0095cd4b34
+  // NOTE: Go to web3forms.com, click the activation link in your Gmail first!
   try{
-    const res  = await fetch('https://api.web3forms.com/submit', {
-      method: 'POST',
-      body:   formData
-    });
-    const data = await res.json();
+    const controller = new AbortController();
+    const timeout    = setTimeout(()=>controller.abort(), 8000); // 8s timeout
 
+    const res = await fetch('https://api.web3forms.com/submit', {
+      method:  'POST',
+      signal:  controller.signal,
+      headers: {'Content-Type':'application/json','Accept':'application/json'},
+      body: JSON.stringify({
+        access_key: 'f9d354b9-4c2f-4a9c-be20-3e0095cd4b34',
+        subject:    '💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸',
+        from_name:  name || 'Mia Grace',
+        message:    msg + '\n\n— Sent from the Pi Day website 🌸',
+        botcheck:   ''
+      })
+    });
+    clearTimeout(timeout);
+
+    const data = await res.json();
     if(data.success){
-      _showSent();
-    } else {
-      console.warn('Web3Forms error:', data);
-      _mailtoFallback(name, msg);
+      btn.disabled = false;
+      btnTxt.textContent = 'Send my reply ♡';
+      _showSent('Sent! He\'ll read it soon. 🌸');
+      return;
     }
-  } catch(err){
-    console.warn('Send failed, opening Gmail:', err);
-    _mailtoFallback(name, msg);
-  } finally {
-    btn.disabled = false;
-    btnTxt.textContent = 'Send my reply ♡';
+  }catch(err){
+    console.warn('Web3Forms failed, falling back to Gmail:', err.message);
   }
+
+  // Fallback: open Gmail compose with message pre-filled
+  btn.disabled = false;
+  btnTxt.textContent = 'Send my reply ♡';
+  const to  = 'johndaleverthhechanova@gmail.com';
+  const sub = encodeURIComponent('💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸');
+  const bod = encodeURIComponent((name?'From: '+name+'\n\n':'')+msg+'\n\n— Sent from the Pi Day website 🌸');
+  window.location.href = `mailto:${to}?subject=${sub}&body=${bod}`;
+  setTimeout(()=>_showSent('Gmail opened! Just tap Send and he\'ll receive it. 🌸'), 900);
 }
 
-function _showSent(){
+function _showSent(msg){
   document.getElementById('wbForm').style.display    = 'none';
   document.getElementById('wbSuccess').style.display = 'block';
-  document.getElementById('wbSuccessMsg').textContent = 'Sent! He\'ll read it soon. 🌸';
-  showToast('💌 Message delivered!');
+  document.getElementById('wbSuccessMsg').textContent = msg || 'Sent! He\'ll read it soon. 🌸';
+  showToast('💌 Message sent!');
 }
 
 function _mailtoFallback(name, msg){
-  // If API fails, open Gmail compose as backup — message is pre-filled
-  const to  = 'johndaleverthpechanova@gmail.com';
+  const to  = 'johndaleverthhechanova@gmail.com';
   const sub = encodeURIComponent('💌 ' + (name||'Mia') + ' wrote back — Pi Day 3.14 🌸');
   const bod = encodeURIComponent((name?'From: '+name+'\n\n':'')+msg+'\n\n— Sent from the Pi Day website 🌸');
-  window.open(`mailto:${to}?subject=${sub}&body=${bod}`, '_blank');
-  setTimeout(()=>{
-    _showSent();
-    document.getElementById('wbSuccessMsg').textContent = 'Gmail opened! Send the message and he\'ll receive it. 🌸';
-  }, 800);
+  window.location.href = `mailto:${to}?subject=${sub}&body=${bod}`;
 }
 
 /* ════════════════════════════════════
